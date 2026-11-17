@@ -1,0 +1,151 @@
+
+name: SAST and DAST Security Scan
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-scan:
+    name: SAST and DAST
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 30
+
+    steps:
+      # ------------------------------------------------
+      # STEP 1: Get the source code
+      # ------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------
+      # STEP 2: SAST - Angular Frontend
+      # ------------------------------------------------
+      - name: SAST - Frontend SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        with:
+          projectBaseDir: Mean_Stack_Todo_App_Frontend-main
+          args: >
+            -Dsonar.projectKey=todo-frontend
+            -Dsonar.projectName=Todo-App-Frontend
+            -Dsonar.sources=src
+            -Dsonar.exclusions=**/*.spec.ts
+        env:
+          #SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          #SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: sqa_af51def893ac2d658f763631d06287a08bc410c6
+          SONAR_HOST_URL: http://localhost:9000
+
+      # ------------------------------------------------
+      # STEP 3: SAST - Node.js Backend
+      # ------------------------------------------------
+      - name: SAST - Backend SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        with:
+          projectBaseDir: Mean_Stack_Todo_App_Backend-main
+          args: >
+            -Dsonar.projectKey=todo-backend
+            -Dsonar.projectName=Todo-App-Backend
+            -Dsonar.sources=.
+            -Dsonar.exclusions=**/node_modules/**,**/images/**,**/Kubernetes_manifests/**
+        env:
+          #SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          #SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: sqa_af51def893ac2d658f763631d06287a08bc410c6
+          SONAR_HOST_URL: http://localhost:9000
+
+      # ------------------------------------------------
+      # STEP 4: Check whether applications are running
+      # ------------------------------------------------
+      - name: Check frontend and backend availability
+        shell: pwsh
+        run: |
+          $targets = @(
+            "http://localhost:4200/",
+            "http://localhost:3001/tasks"
+          )
+
+          foreach ($url in $targets) {
+            Write-Host "Checking $url"
+
+            $available = $false
+
+            for ($i = 1; $i -le 12; $i++) {
+              try {
+                $response = Invoke-WebRequest `
+                  -Uri $url `
+                  -UseBasicParsing `
+                  -TimeoutSec 5
+
+                Write-Host "Available: $url (HTTP $([int]$response.StatusCode))"
+                $available = $true
+                break
+              }
+              catch {
+                Write-Host "Waiting for application... Attempt $i of 12"
+                Start-Sleep -Seconds 5
+              }
+            }
+
+            if (-not $available) {
+              throw "Application is not reachable: $url"
+            }
+          }
+
+      # ------------------------------------------------
+      # STEP 5: DAST - Angular Frontend
+      # ------------------------------------------------
+      - name: DAST - Frontend OWASP ZAP Scan
+        shell: pwsh
+        run: |
+          docker run --rm `
+            -v "${{ github.workspace }}:/zap/wrk/:rw" `
+            ghcr.io/zaproxy/zaproxy:stable `
+            zap-baseline.py `
+            -t http://host.docker.internal:4200 `
+            -r frontend-zap-report.html `
+            -I
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      # ------------------------------------------------
+      # STEP 6: DAST - Node.js Backend
+      # ------------------------------------------------
+      - name: DAST - Backend OWASP ZAP Scan
+        shell: pwsh
+        run: |
+          docker run --rm `
+            -v "${{ github.workspace }}:/zap/wrk/:rw" `
+            ghcr.io/zaproxy/zaproxy:stable `
+            zap-baseline.py `
+            -t http://host.docker.internal:3001/tasks `
+            -r backend-zap-report.html `
+            -I
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      # ------------------------------------------------
+      # STEP 7: Publish ZAP reports
+      # ------------------------------------------------
+      - name: Upload ZAP HTML reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OWASP-ZAP-Security-Reports
+          path: |
+            frontend-zap-report.html
+            backend-zap-report.html
+          if-no-files-found: warn
+          retention-days: 14
