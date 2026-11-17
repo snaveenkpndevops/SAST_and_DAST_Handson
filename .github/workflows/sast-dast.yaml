@@ -68,7 +68,7 @@ jobs:
       # STEP 4: Check whether applications are running
       # ------------------------------------------------
       - name: Check frontend and backend availability
-        shell: pwsh
+        shell: powershell
         run: |
           $targets = @(
             "http://localhost:4200/",
@@ -77,7 +77,6 @@ jobs:
 
           foreach ($url in $targets) {
             Write-Host "Checking $url"
-
             $available = $false
 
             for ($i = 1; $i -le 12; $i++) {
