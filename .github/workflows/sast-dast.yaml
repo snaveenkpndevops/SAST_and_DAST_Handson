@@ -105,13 +105,13 @@ jobs:
       # STEP 5: DAST - Angular Frontend
       # ------------------------------------------------
       - name: DAST - Frontend OWASP ZAP Scan
-        shell: pwsh
+        shell: powershell
         run: |
           docker run --rm `
             -v "${{ github.workspace }}:/zap/wrk/:rw" `
             ghcr.io/zaproxy/zaproxy:stable `
             zap-baseline.py `
-            -t http://host.docker.internal:4200 `
+            -t http://192.168.65.254:4200 `
             -r frontend-zap-report.html `
             -I
 
@@ -123,7 +123,7 @@ jobs:
       # STEP 6: DAST - Node.js Backend
       # ------------------------------------------------
       - name: DAST - Backend OWASP ZAP Scan
-        shell: pwsh
+        shell: powershell
         run: |
           docker run --rm `
             -v "${{ github.workspace }}:/zap/wrk/:rw" `
